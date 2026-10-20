@@ -1,0 +1,125 @@
+ok   command :AI exists
+ok   command :AIEdit exists
+ok   command :AIChat exists
+ok   command :AIImage exists
+ok   command :AIRedo exists
+ok   command :AIStopChat exists
+ok   registered providers
+ok   provider module
+ok   public functions
+ok   chat open command
+ok   chat paste mode
+ok   complete selection boundary
+ok   image provider
+ok   edit defaults to complete provider options
+ok   curl path
+ok   Enabled(1)
+ok   Enabled('1')
+ok   Enabled(0)
+ok   Enabled('0')
+ok   Enabled(v:true)
+ok   ExtendDeep
+ok   ExtendDeep input untouched
+ok   insert into line
+ok   insertion point after insert
+ok   insert with newlines
+ok   insertion point after multiline
+ok   AppendLines
+ok   appended line
+ok   DeleteLines
+ok   DeleteVisualSelection charwise
+ok   DeleteVisualSelection insertion point
+ok   DeleteVisualSelection linewise
+ok   encode Hello
+ok   encode two bytes
+ok   encode one byte
+ok   encode empty
+ok   decode Hello
+ok   decode without padding
+ok   roundtrip 500 bytes
+ok   section names
+ok   simple value
+ok   dotted key
+ok   multi line value
+ok   empty value
+ok   sections without keys
+ok   empty section
+ok   role names for chat
+ok   role names for image
+ok   role names for complete
+ok   default role is hidden
+ok   default role exists
+ok   sections without command are usable
+ok   role default options
+ok   role default ui
+ok   role chat options
+ok   role edit options
+ok   deprecated role options
+ok   deprecated role chat options
+ok   deprecated role chat ui
+ok   missing role
+ok   no roles
+ok   leading role
+ok   trailing role
+ok   leading and trailing
+ok   only roles
+ok   prompt without config
+ok   prompt with selection
+ok   selection with boundary
+ok   selection that already has the boundary
+ok   config prompt
+ok   selection only
+ok   no prompt and no selection
+ok   filetype boundary
+ok   aichat boundary
+ok   user message
+ok   system message
+ok   conversation
+ok   thinking is dropped
+ok   empty content
+ok   info block is not a message
+ok   include adds a text part
+ok   binary include
+ok   image include type
+ok   image include url
+ok   header provider
+ok   header option
+ok   header initial prompt
+ok   missing header
+ok   deprecated [chat-options]
+ok   int conversion
+ok   float conversion
+ok   switch conversion
+ok   json conversion
+ok   invalid value is rejected
+ok   enable_auth is rejected
+ok   defaults are merged
+ok   data line
+ok   carriage return
+ok   done marker
+ok   empty line
+ok   event line
+ok   broken json
+ok   completion needs a slash
+ok   completion filter
+ok   image completion
+ok   completion output
+ok   cursor is back on the last line
+ok   completion is a single undo block
+ok   edit replaces the range
+ok   chat buffer
+ok   spinner is shown
+ok   async chat finished
+ok   async chat output
+ok   header is rebuilt at the top
+ok   provider line follows the header
+ok   stale option is dropped
+ok   chat content is preserved
+ok   old header block is not duplicated
+ok   image file created
+ok   image content
+ok   http error is reported
+ok   non streamed response
+
+
+PASSED
