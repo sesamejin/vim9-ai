@@ -100,7 +100,7 @@ enddef
 
 def MakeImageMessage(path: string): dict<any>
     var extension = matchstr(path, '\.\zs[^./]*$')
-    var data = vim_ai_util.Base64Encode(readblob(path))
+    var data = base64_encode(readblob(path))
     return {
         type: 'image_url',
         image_url: {url: 'data:image/' .. extension .. ';base64,' .. data},

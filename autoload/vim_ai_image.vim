@@ -31,7 +31,7 @@ export def Run(context: dict<any>): void
         endif
 
         var path = MakeImagePath(get(config, 'ui', {}))
-        var data = vim_ai_util.Base64Decode(result.b64_data)
+        var data = base64_decode(result.b64_data)
         writefile(data, path)
 
         vim_ai_util.ClearEcho()
