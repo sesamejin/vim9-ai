@@ -4,6 +4,9 @@ import autoload 'vim_ai_config.vim'
 import autoload 'vim_ai_buffer.vim'
 import autoload 'vim_ai_chat.vim'
 import autoload 'vim_ai_complete.vim'
+import autoload 'vim_ai_image.vim'
+import autoload 'vim_ai_context.vim'
+
 
 vim_ai_config.Load()
 
@@ -246,7 +249,7 @@ def PrepareRun(command_type: string, defaults: dict<any>, extension: dict<any>,
     var is_selection = IsVisualSelectionRange(uses_range, firstline, lastline)
     var selection = GetSelectionOrRange(is_selection, uses_range != 0, firstline, lastline)
 
-    var context: dict<any> = vim_ai_context#Make({
+    var context: dict<any> = vim_ai_context.Make({
         config_default: defaults,
         config_extension: extension,
         user_instruction: instruction,
@@ -331,7 +334,7 @@ enddef
 # - args[1..2]   - optional region lines
 export def AIImageRun(uses_range: number, config: dict<any>, ...args: list<any>): number
     var run = PrepareRun('image', g:vim_ai_image, config, args, uses_range, true)
-    vim_ai_image#Run(run.context)
+    vim_ai_image.Run(run.context)
     return 0
 enddef
 
@@ -401,7 +404,7 @@ export def AIChatRun(uses_range: number, config: dict<any>, ...args: list<any>):
     var selection = GetSelectionOrRange(is_selection, uses_range != 0, firstline, lastline)
     var started_from_chat = &filetype == 'aichat'
 
-    var context: dict<any> = vim_ai_context#Make({
+    var context: dict<any> = vim_ai_context.Make({
         config_default: g:vim_ai_chat,
         config_extension: config,
         user_instruction: instruction,
@@ -546,7 +549,7 @@ def RoleCompletion(lead: string, command_type: string): list<string>
     endif
     var roles: list<string> = []
     try
-        roles = vim_ai_context#RoleNames(vim_ai_context#ReadRoles(), command_type)
+        roles = vim_ai_context.RoleNames(vim_ai_context.ReadRoles(), command_type)
     catch
         return []
     endtry

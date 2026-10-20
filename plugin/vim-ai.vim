@@ -2,12 +2,14 @@ vim9script
 
 # Ensure Vim implements vim9script (9.0 or newer)
 if !has('vim9script')
-  echoerr 'vim-ai requires Vim 9.0 or newer, Neovim does not implement vim9script'
-  finish
+    echoerr 'vim-ai requires Vim 9.0 or newer, Neovim does not implement vim9script'
+    finish
 endif
 
-vim_ai_provider#Register('openai', {
-  module: 'vim_ai_provider_openai',
+import autoload 'vim_ai_provider.vim'
+
+vim_ai_provider.Register('openai', {
+    module: 'vim_ai_provider_openai',
 })
 
 # NOTE: `:def` functions cannot take a range, so the commands pass the range

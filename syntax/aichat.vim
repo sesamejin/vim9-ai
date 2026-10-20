@@ -1,11 +1,13 @@
 vim9script
 
 if exists('b:current_syntax')
-  finish
+    finish
 endif
 
-if vim_ai_config#Enabled(g:vim_ai_chat_markdown)
-  runtime! syntax/markdown.vim
+import autoload 'vim_ai_config.vim'
+
+if vim_ai_config.Enabled(g:vim_ai_chat_markdown)
+    runtime! syntax/markdown.vim
 endif
 
 syntax match aichatRole "^>>> system"
