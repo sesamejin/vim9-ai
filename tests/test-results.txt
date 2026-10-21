@@ -18,14 +18,23 @@ ok   Enabled('1')
 ok   Enabled(0)
 ok   Enabled('0')
 ok   Enabled(v:true)
+ok   Enabled('yes')
+ok   Enabled('TRUE')
+ok   Enabled(' on ')
+ok   Enabled('no')
+ok   Enabled('off')
+ok   Enabled('')
+ok   Enabled('garbage')
 ok   ExtendDeep
 ok   ExtendDeep input untouched
 ok   insert into line
 ok   insertion point after insert
 ok   insert with newlines
 ok   insertion point after multiline
-ok   AppendLines
-ok   appended line
+ok   multibyte insert
+ok   multibyte insertion point
+ok   emoji insert
+ok   insert behind multibyte text
 ok   DeleteLines
 ok   DeleteVisualSelection charwise
 ok   DeleteVisualSelection insertion point
@@ -36,6 +45,7 @@ ok   encode one byte
 ok   encode empty
 ok   decode Hello
 ok   decode without padding
+ok   decode with line breaks
 ok   roundtrip 500 bytes
 ok   section names
 ok   simple value
@@ -118,8 +128,42 @@ ok   chat content is preserved
 ok   old header block is not duplicated
 ok   image file created
 ok   image content
+ok   image path is placed in the download dir
+ok   image path has the png extension
+ok   image path avoids an existing file
 ok   http error is reported
 ok   non streamed response
+ok   headers are not on the command line
+ok   curl reads a config file
+ok   config file path follows --config
+ok   request url is still passed
+ok   the api key reaches curl through the config file
+ok   the wait is bounded
+ok   timeout is reported
+ok   timeout marks the request done
+ok   the body file is removed
+ok   the header file is removed
+ok   the config file is removed
+ok   the absolute limit is reported
+ok   the absolute limit marks the request done
+ok   the body file is removed after the limit
+ok   cancel ends the job
+ok   cancel is reported
+ok   a cancelled request is not an error
+ok   cancel leaves a fresh user block
+ok   completion before redo
+ok   redo repeats the completion
+ok   edit before redo
+ok   redo repeats the edit
+ok   custom role from the config function
+ok   default roles are still there
+ok   a missing role function is reported
+ok   :AINewChat exists
+ok   :AIUtilDebugOn exists
+ok   :AIUtilDebugOff exists
+ok   debug on
+ok   debug off
+ok   :AINewChat explains the replacement
 
 
 PASSED

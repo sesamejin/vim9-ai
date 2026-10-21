@@ -1,3 +1,6 @@
 vim9script
 
-autocmd BufNewFile,BufRead *.aichat setfiletype aichat
+augroup aichat_ftdetect
+  autocmd!
+  autocmd BufNewFile,BufRead *.aichat setfiletype aichat
+augroup END

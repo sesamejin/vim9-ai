@@ -26,11 +26,12 @@ def Report(name: string, ok: bool, detail: string)
   endif
 enddef
 
-def Equal(name: string, actual: any, expected: any)
+def Equal(name: string, actual: any, expected: any, ...detail: list<string>)
   var actual_text = string(actual)
   var expected_text = string(expected)
   Report(name, actual_text ==# expected_text,
-    'expected: ' .. expected_text .. "\n     actual:   " .. actual_text)
+    'expected: ' .. expected_text .. "\n     actual:   " .. actual_text
+    .. (empty(detail) ? '' : "\n     " .. detail[0]))
 enddef
 
 # `value != 0` would throw for strings, so the type is checked explicitly
@@ -106,6 +107,14 @@ def TestConfig()
   Equal('Enabled(0)', vim_ai_config#Enabled(0), false)
   Equal("Enabled('0')", vim_ai_config#Enabled('0'), false)
   Equal('Enabled(v:true)', vim_ai_config#Enabled(true), true)
+  # string flags accept the same words as the provider option parser
+  Equal("Enabled('yes')", vim_ai_config#Enabled('yes'), true)
+  Equal("Enabled('TRUE')", vim_ai_config#Enabled('TRUE'), true)
+  Equal("Enabled(' on ')", vim_ai_config#Enabled(' on '), true)
+  Equal("Enabled('no')", vim_ai_config#Enabled('no'), false)
+  Equal("Enabled('off')", vim_ai_config#Enabled('off'), false)
+  Equal("Enabled('')", vim_ai_config#Enabled(''), false)
+  Equal("Enabled('garbage')", vim_ai_config#Enabled('garbage'), false)
 
   Equal('ExtendDeep', vim_ai_config#ExtendDeep({a: {b: 1, c: 2}}, {a: {c: 3}}), {a: {b: 1, c: 3}})
   # the defaults must not be modified by ExtendDeep
@@ -126,8 +135,17 @@ def TestBuffer()
   Equal('insert with newlines', getline(1, '$'), ['abcXYZ', 'next', 'lines', 'def'])
   Equal('insertion point after multiline', [state.lnum, state.column], [3, 5])
 
-  Equal('AppendLines', vim_ai_buffer#AppendLines(['tail']).lnum, 5)
-  Equal('appended line', getline(5), 'tail')
+  # the insertion point is a byte offset, multibyte text must not confuse it
+  enew!
+  setline(1, ['前缀'])
+  var multibyte = vim_ai_buffer#InsertState(1, 0)
+  vim_ai_buffer#InsertText(multibyte, '中文')
+  Equal('multibyte insert', getline(1), '中文前缀')
+  Equal('multibyte insertion point', multibyte.column, len('中文'))
+  vim_ai_buffer#InsertText(multibyte, '🙂')
+  Equal('emoji insert', getline(1), '中文🙂前缀')
+  vim_ai_buffer#InsertText(multibyte, '结尾')
+  Equal('insert behind multibyte text', getline(1), '中文🙂结尾前缀')
 
   enew!
   setline(1, ['one', 'two', 'three', 'four'])
@@ -158,8 +176,23 @@ def TestBase64()
   Equal('encode empty', vim_ai_util#Base64Encode(0z), '')
   Equal('decode Hello', vim_ai_util#Base64Decode('SGVsbG8='), 0z48656C6C6F)
   Equal('decode without padding', vim_ai_util#Base64Decode('SGk'), 0z4869)
+  Equal('decode with line breaks', vim_ai_util#Base64Decode("SGVs\nbG8="), 0z48656C6C6F)
   var data = list2blob(map(range(500), (_, index) => (index * 37 + 11) % 256))
   Equal('roundtrip 500 bytes', vim_ai_util#Base64Decode(vim_ai_util#Base64Encode(data)), data)
+enddef
+
+def TestImagePath()
+  var directory = tempname()
+  mkdir(directory)
+  var ui = {download_dir: directory}
+  var first = vim_ai_image#MakeImagePath(ui)
+  Equal('image path is placed in the download dir', stridx(first, directory) == 0, true)
+  Equal('image path has the png extension', fnamemodify(first, ':e'), 'png')
+  writefile([], first)
+  var second = vim_ai_image#MakeImagePath(ui)
+  Equal('image path avoids an existing file', second != first, true)
+  delete(first)
+  delete(directory, 'd')
 enddef
 
 def TestIni()
@@ -567,39 +600,251 @@ def TestNonStreamResponse()
   endif
 enddef
 
+def TestCurlCommand()
+  var handle: dict<any> = {
+    spec: {
+      url: 'http://localhost/chat/completions',
+      headers: {Authorization: 'Bearer secret-token', 'Content-Type': 'application/json'},
+      payload: {},
+      stream: true,
+      timeout: 0,
+    },
+    body_path: 'body.json',
+    header_path: 'headers.txt',
+    config_path: 'headers.curlrc',
+  }
+  var command = vim_ai_http#BuildCommand(handle)
+  Equal('headers are not on the command line',
+    command->copy()->filter((_, value) => value =~# 'secret-token'), [])
+  var config_index = index(command, '--config')
+  Truthy('curl reads a config file', config_index >= 0)
+  Equal('config file path follows --config', command[config_index + 1], 'headers.curlrc')
+  Equal('request url is still passed', index(command, 'http://localhost/chat/completions') >= 0, true)
+enddef
+
+def TestRequestHeaders()
+  var curl = FakeCurlCommand('fake_curl_config.sh')
+  if empty(curl)
+    results->add('skip request headers (fake curl not executable)')
+    return
+  endif
+  g:vim_ai_curl_path = curl
+  enew!
+  setline(1, [''])
+  vim_ai#AIRun(0, {}, 'explain')
+  Equal('the api key reaches curl through the config file',
+    getline(1, '$'), ['Authorization: Bearer file.secret'])
+enddef
+
+def IgnoreResponse(response: dict<any>)
+enddef
+
+def TestWaitTimeout()
+  var curl = FakeCurlCommand('fake_curl_hang.sh')
+  if empty(curl)
+    results->add('skip wait timeout (fake curl not executable)')
+    return
+  endif
+  g:vim_ai_curl_path = curl
+  var spec: dict<any> = {
+    url: 'http://localhost/chat/completions',
+    headers: {Authorization: 'Bearer file.secret'},
+    payload: {model: 'test'},
+    stream: true,
+    timeout: 0,
+    on_response: IgnoreResponse,
+  }
+  var handle = vim_ai_http#Start(spec)
+  var started = reltime()
+  vim_ai_http#Wait(handle, 300)
+  Truthy('the wait is bounded', reltimefloat(reltime(started)) < 10)
+  Equal('timeout is reported', vim_ai_http#Error(handle), 'Request timeout...')
+  Equal('timeout marks the request done', vim_ai_http#IsDone(handle), true)
+  Falsy('the body file is removed', filereadable(handle.body_path))
+  Falsy('the header file is removed', filereadable(handle.header_path))
+  Falsy('the config file is removed', filereadable(handle.config_path))
+enddef
+
+# the function is defined by a legacy script, see the comment in that file
+def TestRolesFunction()
+  execute 'source ' .. resources .. '/roles_function.vim'
+  var saved = get(g:, 'vim_ai_roles_config_function', '')
+  try
+    g:vim_ai_roles_config_function = 'VimAiTestCustomRoles'
+    var roles = vim_ai_context#ReadRoles()
+    Equal('custom role from the config function',
+      get(roles, 'test-custom-role', {}), {'options.model': 'custom-model'})
+    Truthy('default roles are still there', has_key(roles, 'grammar'), string(keys(roles)))
+
+    g:vim_ai_roles_config_function = 'VimAiTestMissingRoles'
+    var failure = ''
+    try
+      vim_ai_context#ReadRoles()
+    catch
+      failure = v:exception
+    endtry
+    Truthy('a missing role function is reported',
+      failure =~# 'Role config function does not exist', failure)
+  finally
+    g:vim_ai_roles_config_function = saved
+  endtry
+enddef
+
+def TestWaitMaxDuration()
+  var curl = FakeCurlCommand('fake_curl_hang.sh')
+  if empty(curl)
+    results->add('skip wait max duration (fake curl not executable)')
+    return
+  endif
+  g:vim_ai_curl_path = curl
+  var spec: dict<any> = {
+    url: 'http://localhost/chat/completions',
+    headers: {},
+    payload: {},
+    stream: true,
+    timeout: 0,
+    on_response: IgnoreResponse,
+  }
+  var handle = vim_ai_http#Start(spec)
+  # the idle timeout is far away, the absolute limit must fire first
+  vim_ai_http#Wait(handle, 100000, 300)
+  Equal('the absolute limit is reported', vim_ai_http#Error(handle),
+    'Request exceeded the time limit of 300 ms')
+  Equal('the absolute limit marks the request done', vim_ai_http#IsDone(handle), true)
+  Falsy('the body file is removed after the limit', filereadable(handle.body_path))
+enddef
+
+def TestChatCancel()
+  var curl = FakeCurlCommand('fake_curl_stall.sh')
+  if empty(curl)
+    results->add('skip chat cancel (fake curl not executable)')
+    return
+  endif
+  g:vim_ai_curl_path = curl
+  g:vim_ai_async_chat = 1
+  try
+    enew!
+    setlocal buftype=nofile
+    setlocal filetype=aichat
+    setline(1, ['>>> user', '', 'hello'])
+    vim_ai#AIChatRun(0, {})
+    var bufnr = bufnr('%')
+
+    # let the first chunks arrive before the job is cancelled
+    sleep 400m
+    vim_ai#AIChatWatch(bufnr, 0, 0)
+    vim_ai#AIChatStopRun()
+
+    var waited = 0
+    while !vim_ai_chat#IsJobDone(bufnr) && waited < 100
+      sleep 50m
+      vim_ai#AIChatWatch(bufnr, 0, 0)
+      waited += 1
+    endwhile
+    vim_ai#AIChatWatch(bufnr, 0, 0)
+
+    Equal('cancel ends the job', vim_ai_chat#IsJobDone(bufnr), true)
+    var lines = getline(1, '$')
+    Truthy('cancel is reported', index(lines, 'CANCELLED by user') >= 0, string(lines))
+    Equal('a cancelled request is not an error',
+      filter(copy(lines), (_, line) => line =~# 'error getting response'), [], string(lines))
+    Equal('cancel leaves a fresh user block', lines[-3 :], ['>>> user', '', ''], string(lines))
+  finally
+    g:vim_ai_async_chat = 0
+  endtry
+enddef
+
+def TestRedo()
+  if !HasFakeCurl()
+    results->add('skip redo (fake curl not executable)')
+    return
+  endif
+  UseFakeCurl('fake_curl.sh')
+
+  enew!
+  setline(1, ['aaa', 'bbb'])
+  &undolevels = &undolevels
+  vim_ai#AIRun(0, {}, 'explain')
+  Equal('completion before redo', getline(1, '$'),
+    ['aaa', 'Hello world', 'Second line', 'bbb'])
+  vim_ai#AIRedoRun()
+  Equal('redo repeats the completion', getline(1, '$'),
+    ['aaa', 'Hello world', 'Second line', 'bbb'])
+
+  enew!
+  setline(1, ['aaa bbb', 'ccc ddd'])
+  &undolevels = &undolevels
+  vim_ai#AIEditRun(0, {}, 'rewrite', 1, 1)
+  Equal('edit before redo', getline(1, '$'), ['Hello world', 'Second line', 'ccc ddd'])
+  vim_ai#AIRedoRun()
+  Equal('redo repeats the edit', getline(1, '$'), ['Hello world', 'Second line', 'ccc ddd'])
+enddef
+
+def TestDeprecatedCommands()
+  Equal(':AINewChat exists', exists(':AINewChat'), 2)
+  Equal(':AIUtilDebugOn exists', exists(':AIUtilDebugOn'), 2)
+  Equal(':AIUtilDebugOff exists', exists(':AIUtilDebugOff'), 2)
+
+  var saved = g:vim_ai_debug
+  try
+    vim_ai#AIUtilSetDebug(1)
+    Equal('debug on', g:vim_ai_debug, 1)
+    vim_ai#AIUtilSetDebug(0)
+    Equal('debug off', g:vim_ai_debug, 0)
+  finally
+    g:vim_ai_debug = saved
+  endtry
+
+  var message = ''
+  try
+    vim_ai#AINewChatDeprecatedRun()
+  catch
+    message = v:exception
+  endtry
+  Truthy(':AINewChat explains the replacement', message =~# 'deprecated', message)
+enddef
+
 # ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
-
 set nocompatible
-execute 'set runtimepath^=' .. root
+&runtimepath = root .. ',' .. &runtimepath
 filetype plugin indent on
 syntax enable
 runtime! plugin/vim-ai.vim
 vim_ai_config#Load()
 
 var cases = [
-  ['plugin', function('TestPlugin')],
-  ['config', function('TestConfig')],
-  ['buffer', function('TestBuffer')],
-  ['base64', function('TestBase64')],
-  ['ini', function('TestIni')],
-  ['roles', function('TestRoles')],
-  ['role names', function('TestRoleNames')],
-  ['prompt', function('TestPrompt')],
-  ['messages', function('TestMessages')],
-  ['chat header', function('TestHeaderConfig')],
-  ['provider options', function('TestProviderOptions')],
-  ['stream parsing', function('TestStreamParsing')],
-  ['role completion', function('TestRoleCompletion')],
-  ['complete end to end', function('TestCompleteEndToEnd')],
-  ['edit end to end', function('TestEditEndToEnd')],
-  ['chat end to end', function('TestChatEndToEnd')],
-  ['async chat end to end', function('TestChatAsyncEndToEnd')],
-  ['chat repopulate', function('TestChatRepopulate')],
-  ['image end to end', function('TestImageEndToEnd')],
-  ['http error', function('TestHttpError')],
-  ['non stream response', function('TestNonStreamResponse')],
+  ['plugin', TestPlugin],
+  ['config', TestConfig],
+  ['buffer', TestBuffer],
+  ['base64', TestBase64],
+  ['ini', TestIni],
+  ['roles', TestRoles],
+  ['role names', TestRoleNames],
+  ['prompt', TestPrompt],
+  ['messages', TestMessages],
+  ['chat header', TestHeaderConfig],
+  ['provider options', TestProviderOptions],
+  ['stream parsing', TestStreamParsing],
+  ['role completion', TestRoleCompletion],
+  ['complete end to end', TestCompleteEndToEnd],
+  ['edit end to end', TestEditEndToEnd],
+  ['chat end to end', TestChatEndToEnd],
+  ['async chat end to end', TestChatAsyncEndToEnd],
+  ['chat repopulate', TestChatRepopulate],
+  ['image end to end', TestImageEndToEnd],
+  ['image path', TestImagePath],
+  ['http error', TestHttpError],
+  ['non stream response', TestNonStreamResponse],
+  ['curl command', TestCurlCommand],
+  ['request headers', TestRequestHeaders],
+  ['wait timeout', TestWaitTimeout],
+  ['wait max duration', TestWaitMaxDuration],
+  ['chat cancel', TestChatCancel],
+  ['redo', TestRedo],
+  ['roles function', TestRolesFunction],
+  ['deprecated commands', TestDeprecatedCommands],
 ]
 
 PrepareEndToEnd()

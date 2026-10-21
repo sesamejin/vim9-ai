@@ -51,7 +51,8 @@ For more, see the [providers](#providers) section.
 
 ### Prerequisites
 
-- Vim 9.0 or newer with `vim9script` support
+- Vim 9.1.0980 or newer with `vim9script` support (the plugin uses
+  `base64_encode()` / `base64_decode()`; earlier 9.1 patches lack them)
   (Neovim does not implement `vim9script` and is not supported)
 - the `curl` command line tool, it is used for all HTTP requests
 - [API key](https://platform.openai.com/account/api-keys)
@@ -138,6 +139,11 @@ the plugin itself has no Python dependency. Out of the box it speaks the OpenAI
 compatible API: `chat/completions` for `:AI`, `:AIEdit` and `:AIChat`, and
 `images/generations` for `:AIImage`. Any OpenAI compatible endpoint can be used
 by pointing `options.endpoint_url` at it.
+
+Request headers, including the api key, are handed to `curl` through a
+temporary config file with owner-only permissions instead of the command line,
+so the token does not show up in `ps` or in the Windows process list. The file
+is removed as soon as the request finishes.
 
 A provider is a `vim9script` module, the built-in one is
 `autoload/vim_ai_provider_openai.vim`. A module implements:

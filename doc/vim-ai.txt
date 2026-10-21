@@ -8,11 +8,15 @@ INTRODUCTION                                    *vim-ai*
 This plugin can be used to generate code, edit text, brainstorm ideas,
 translate, etc.
 
-The plugin is written in |vim9script| and requires Vim 9.0 or newer.
+The plugin is written in |vim9script| and requires Vim 9.1.0980 or newer
+(it relies on |base64_encode()| and |base64_decode()|).
 Neovim does not implement vim9script and is not supported.
 
 All HTTP requests are made with the external `curl` command, the location can
-be changed with |g:vim_ai_curl_path|.
+be changed with |g:vim_ai_curl_path|.  Request headers, including the api key,
+are passed to `curl` through a temporary config file with owner-only
+permissions instead of the command line, so the token does not appear in the
+process list.  The file is removed when the request finishes.
 
                                                 *g:vim_ai_curl_path*
 Location of the `curl` command used for the requests.  Either a path or a list
@@ -296,7 +300,9 @@ See roles-example.ini for more examples.
 The roles in g:vim_ai_roles_config_file are converted to a Vim dictionary whose
 labels are the names of the roles. Optionally, roles can be added by setting
 g:vim_ai_roles_config_function to the name of a Vimscript function returning a
-dictionary of the same format as g:vim_ai_roles_config_file.
+dictionary of the same format as g:vim_ai_roles_config_file.  The function
+must be global, define it in your vimrc.  Values from the function take
+precedence over the same section in g:vim_ai_roles_config_file.
 
 MARKDOWN HIGHLIGHTING                            *g:vim_ai_chat_markdown*
 

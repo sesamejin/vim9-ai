@@ -1,16 +1,37 @@
 vim9script
 
-# Ensure Vim implements vim9script (9.0 or newer)
+import autoload 'vim_ai_config.vim' as cfg
+import autoload 'vim_ai_http.vim' as http
+import autoload 'vim_ai_provider.vim' as prov
+
+# Ensure Vim implements vim9script (Neovim does not)
 if !has('vim9script')
-    echoerr 'vim-ai requires Vim 9.0 or newer, Neovim does not implement vim9script'
-    finish
+  echoerr 'vim-ai requires Vim 9.1.0980 or newer, Neovim does not implement vim9script'
+  finish
 endif
 
-import autoload 'vim_ai_provider.vim'
+# `base64_encode()` and `base64_decode()` were added in patch 9.1.0980 and are
+# used for image attachments and `:AIImage`
+if !exists('*base64_encode')
+  echoerr 'vim-ai requires Vim 9.1.0980 or newer (base64_encode(), base64_decode())'
+  finish
+endif
 
-vim_ai_provider.Register('openai', {
-    module: 'vim_ai_provider_openai',
+prov.Register('openai', {
+  module: 'vim_ai_provider_openai',
 })
+
+# sourcing the config makes `g:vim_ai_curl_path` available before the first
+# command runs
+cfg.Load()
+
+# a missing curl would only surface as `Failed to start curl` on the first
+# request, which is easy to mistake for a network problem
+if !http.IsAvailable()
+  echohl WarningMsg
+  echomsg 'vim-ai: curl was not found, set g:vim_ai_curl_path (see :help g:vim_ai_curl_path)'
+  echohl None
+endif
 
 # NOTE: `:def` functions cannot take a range, so the commands pass the range
 # boundaries explicitly through `<line1>` and `<line2>`.
