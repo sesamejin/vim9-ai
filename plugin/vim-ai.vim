@@ -21,6 +21,18 @@ prov.Register('openai', {
   module: 'vim_ai_provider_openai',
 })
 
+# ACP agents run as subprocesses, the provider is registered even when no agent
+# is installed, a missing command is reported on the first request
+prov.Register('acp', {
+  module: 'vim_ai_provider_acp',
+})
+
+# an ACP agent would outlive Vim otherwise
+augroup vim_ai_acp
+  autocmd!
+  autocmd VimLeavePre * vim_ai_acp#StopAll()
+augroup END
+
 # sourcing the config makes `g:vim_ai_curl_path` available before the first
 # command runs
 cfg.Load()
@@ -43,5 +55,6 @@ command! -nargs=? AINewChat call vim_ai#AINewChatDeprecatedRun(<f-args>)
 command! AIRedo call vim_ai#AIRedoRun()
 command! AIStopChat call vim_ai#AIChatStopRun()
 command! AIUtilRolesOpen call vim_ai#AIUtilRolesOpen()
+command! AIUtilAcpStop call vim_ai_acp#StopAll()
 command! AIUtilDebugOn call vim_ai#AIUtilSetDebug(1)
 command! AIUtilDebugOff call vim_ai#AIUtilSetDebug(0)

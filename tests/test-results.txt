@@ -6,6 +6,7 @@ ok   command :AIRedo exists
 ok   command :AIStopChat exists
 ok   registered providers
 ok   provider module
+ok   acp provider module
 ok   public functions
 ok   chat open command
 ok   chat paste mode
@@ -151,6 +152,43 @@ ok   cancel ends the job
 ok   cancel is reported
 ok   a cancelled request is not an error
 ok   cancel leaves a fresh user block
+ok   acp turn error
+ok   acp turn is done
+ok   acp turn chunks
+ok   acp on_done is called once
+ok   acp one shot session is closed
+ok   the first turn sends the whole prompt
+ok   the session is kept
+ok   a later turn sends only the new message
+ok   the session can be closed
+ok   the allow option is selected
+ok   the reject option is selected
+ok   the agent read the file through the client
+ok   the agent wrote the file through the client
+ok   the written file exists
+ok   the written file content
+ok   the session is ready before the cancel
+ok   a cancelled turn is not an error
+ok   the cancelled turn is done
+ok   the cancelled session can be closed
+ok   a missing agent is reported
+ok   no session is left behind
+ok   acp prompt keeps the system section
+ok   acp prompt has the last message
+ok   acp prompt can drop the system section
+ok   acp image attachment
+ok   the acp answer is in the chat
+ok   the tool call is shown
+ok   a new user block is prepared
+ok   acp async chat finished
+ok   the acp answer arrives asynchronously
+ok   the spinner is gone
+ok   the acp wait is bounded
+ok   the acp timeout is reported
+ok   the timed out session is gone
+ok   the buffer starts with the old content
+ok   the buffer shows what the agent wrote
+ok   the acp answer is inserted
 ok   completion before redo
 ok   redo repeats the completion
 ok   edit before redo

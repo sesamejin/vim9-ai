@@ -1,5 +1,6 @@
 vim9script
 
+import autoload 'vim_ai_acp.vim' as acp
 import autoload 'vim_ai_buffer.vim' as bufmod
 import autoload 'vim_ai_config.vim' as cfg
 import autoload 'vim_ai_context.vim' as ctx
@@ -404,11 +405,18 @@ export def ForgetJob(bufnr: number): void
     http.Cancel(job.handle)
   endif
   remove(job_pool, bufnr)
+  # an ACP agent keeps a session per buffer, it would outlive the buffer
+  acp.CloseSession(acp.BufferKey(bufnr))
   util.Debug('Job for bufnr ' .. bufnr .. ' removed with its buffer')
 enddef
 
 def OnJobChunk(job: dict<any>, chunk: dict<any>): void
   util.Debug('Received chunk: ' .. chunk.type .. ' => ' .. chunk.content)
+  if chunk.type ==# 'assistant'
+    # the answer of a provider may be followed by info sections (tool calls of
+    # an ACP agent), the user block is added when an answer was produced
+    job.saw_assistant = true
+  endif
   if job.previous_type != chunk.type
     if job.previous_type != ''
       job.buffer ..= "\n"
@@ -440,7 +448,7 @@ def OnJobDone(job: dict<any>, handle: dict<any>): void
   extend(job.lines, split(job.buffer, "\n", true))
   job.buffer = ''
 
-  if error == '' && (job.previous_type ==# 'assistant' || job.cancelled)
+  if error == '' && (job.saw_assistant || job.cancelled)
     extend(job.lines, ['', user_header, '', ''])
   endif
 
@@ -581,6 +589,7 @@ def StartAsyncJob(context: dict<any>, messages: list<any>, provider_name: string
     lines: [],
     buffer: '',
     previous_type: '',
+    saw_assistant: false,
     cancelled: false,
     done: false,
     handle: v:none,

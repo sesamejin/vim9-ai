@@ -4,13 +4,16 @@
 :AIImage	vim-ai.txt	/*:AIImage*
 :AIRedo	vim-ai.txt	/*:AIRedo*
 :AIStopChat	vim-ai.txt	/*:AIStopChat*
+:AIUtilAcpStop	vim-ai.txt	/*:AIUtilAcpStop*
 :AIUtilDebugOff	vim-ai.txt	/*:AIUtilDebugOff*
 :AIUtilDebugOn	vim-ai.txt	/*:AIUtilDebugOn*
 :AIUtilRolesOpen	vim-ai.txt	/*:AIUtilRolesOpen*
+g:vim_ai_acp_chat	vim-ai.txt	/*g:vim_ai_acp_chat*
 g:vim_ai_chat_markdown	vim-ai.txt	/*g:vim_ai_chat_markdown*
 g:vim_ai_curl_path	vim-ai.txt	/*g:vim_ai_curl_path*
 vim-ai	vim-ai.txt	/*vim-ai*
 vim-ai-about	vim-ai.txt	/*vim-ai-about*
+vim-ai-acp	vim-ai.txt	/*vim-ai-acp*
 vim-ai-commands	vim-ai.txt	/*vim-ai-commands*
 vim-ai-config	vim-ai.txt	/*vim-ai-config*
 vim-ai-include	vim-ai.txt	/*vim-ai-include*

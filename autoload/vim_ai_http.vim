@@ -146,6 +146,13 @@ def RestrictPermissions(path: string): void
 enddef
 
 export def IsDone(handle: dict<any>): bool
+  # A provider may implement its own transport (an ACP agent is a subprocess
+  # speaking JSON-RPC instead of an HTTP endpoint). Such a handle carries its
+  # own implementation, the callers stay independent of the transport.
+  if has_key(handle, 'is_done_fn')
+    var implemented: bool = call(handle.is_done_fn, [handle])
+    return implemented
+  endif
   return handle.done
 enddef
 
@@ -157,6 +164,10 @@ enddef
 # stalled connection is detected quickly. `max_ms` is the absolute upper bound.
 export def Wait(handle: dict<any>, idle_ms: number = default_idle_ms,
     max_ms: number = default_max_ms): void
+  if has_key(handle, 'wait_fn')
+    call(handle.wait_fn, [handle])
+    return
+  endif
   var start = reltime()
   try
     while !handle.done
@@ -196,6 +207,10 @@ def IdleMilliseconds(handle: dict<any>, start: list<any>): number
 enddef
 
 export def Cancel(handle: dict<any>): void
+  if has_key(handle, 'cancel_fn')
+    call(handle.cancel_fn, [handle])
+    return
+  endif
   handle.cancelled = true
   if type(handle.job) == v:t_job && job_status(handle.job) ==# 'run'
     job_stop(handle.job)
@@ -203,6 +218,10 @@ export def Cancel(handle: dict<any>): void
 enddef
 
 export def Error(handle: dict<any>): string
+  if has_key(handle, 'error_fn')
+    var implemented: string = call(handle.error_fn, [handle])
+    return implemented
+  endif
   return handle.error
 enddef
 

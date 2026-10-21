@@ -128,6 +128,47 @@ g:vim_ai_openai_image = {
   token_load_fn: '',
 }
 
+# acp provider options
+# The agent is started as a subprocess and the prompt is sent over the Agent
+# Client Protocol, so the agent can read and edit the project itself.
+g:vim_ai_acp_chat = {
+  # command of the ACP agent, a list keeps arguments with spaces possible
+  agent_command: ['claude-code-acp'],
+  # empty - the directory of the current buffer
+  cwd: '',
+  # empty - one session per buffer
+  session_key: '',
+  # ask | allow | deny - how `session/request_permission` is answered
+  permission_mode: 'ask',
+  # enable_fs - serve `fs/read_text_file` and `fs/write_text_file`
+  enable_fs: 1,
+  # reuse_session - continue the same agent session in the same buffer
+  reuse_session: 1,
+  # send_system_prompt - include `>>> system` sections in the prompt
+  send_system_prompt: 1,
+  # seconds without any message from the agent before the turn is given up
+  request_timeout: 300,
+  protocol_version: 1,
+  # list of MCP servers handed to `session/new`, json in an INI file
+  mcp_servers: [],
+  # method id of `authenticate`, empty to skip the step
+  auth_method: '',
+}
+g:vim_ai_acp_complete = {
+  agent_command: ['claude-code-acp'],
+  cwd: '',
+  session_key: '',
+  permission_mode: 'ask',
+  enable_fs: 1,
+  reuse_session: 0,
+  send_system_prompt: 1,
+  request_timeout: 120,
+  protocol_version: 1,
+  mcp_servers: [],
+  auth_method: '',
+}
+g:vim_ai_acp_edit = g:vim_ai_acp_complete
+
 g:vim_ai_open_chat_presets = get(g:, 'vim_ai_open_chat_presets', {
   preset_below: 'below new',
   preset_tab: 'tabnew',

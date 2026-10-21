@@ -16,6 +16,7 @@ To get an idea what is possible to do with AI commands see the [prompts](https:/
 - Vision capabilities (image to text)
 - Generate images
 - Integrates with any OpenAI-compatible API
+- Talk to ACP agents (Agent Client Protocol) that can edit the project themselves
 - AI provider plugins
 
 ## How it works
@@ -134,19 +135,21 @@ If you are interested in more tips or would like to level up your Vim with more 
 
 ## Providers
 
-All requests are made with the external `curl` command (`g:vim_ai_curl_path`),
+All HTTP requests are made with the external `curl` command (`g:vim_ai_curl_path`),
 the plugin itself has no Python dependency. Out of the box it speaks the OpenAI
 compatible API: `chat/completions` for `:AI`, `:AIEdit` and `:AIChat`, and
 `images/generations` for `:AIImage`. Any OpenAI compatible endpoint can be used
-by pointing `options.endpoint_url` at it.
+by pointing `options.endpoint_url` at it. The second built-in provider speaks
+ACP over a subprocess instead, see [ACP provider](#acp-provider).
 
 Request headers, including the api key, are handed to `curl` through a
 temporary config file with owner-only permissions instead of the command line,
 so the token does not show up in `ps` or in the Windows process list. The file
 is removed as soon as the request finishes.
 
-A provider is a `vim9script` module, the built-in one is
-`autoload/vim_ai_provider_openai.vim`. A module implements:
+A provider is a `vim9script` module, the built-in ones are
+`autoload/vim_ai_provider_openai.vim` and `autoload/vim_ai_provider_acp.vim`.
+A module implements:
 
 | function | purpose |
 | --- | --- |
@@ -169,6 +172,88 @@ provider as a reference.
 
 The previous Python based provider plugins are not compatible with this version,
 the transport and the provider interface both changed.
+
+### ACP provider
+
+Besides HTTP endpoints the plugin can talk to an
+[ACP](https://agentclientprotocol.com) (Agent Client Protocol) agent.
+Such an agent is a program that the plugin starts as a subprocess and drives
+over JSON-RPC, so it can read and edit the project itself instead of only
+returning text. Examples are `claude-code-acp` (Claude Code with an ACP
+adapter) and `gemini --experimental-acp`.
+
+```vim
+let g:vim_ai_chat = {
+\  "provider": "acp",
+\  "options": {
+\    "agent_command": ["claude-code-acp"],
+\  },
+\}
+```
+
+The same can be set per chat buffer in its header:
+
+```properties
+[chat]
+provider=acp
+options.agent_command=["npx", "-y", "@zed-industries/claude-code-acp"]
+```
+
+or with a role:
+
+```ini
+[claude]
+provider = acp
+options.agent_command = ["claude-code-acp"]
+options.permission_mode = ask
+```
+
+then run `:AIChat /claude`.
+
+An agent is started once per chat buffer and kept alive, the chat buffer
+continues the agent's session, therefore only the new message is sent on every
+turn. Deleting the chat buffer ends the session (`:AIUtilAcpStop` stops all of
+them). `:AI` and `:AIEdit` do not reuse sessions, they send the whole
+conversation as one prompt and stop the agent afterwards.
+
+What the agent does is shown in the chat buffer as `<<< info` sections (tool
+calls, plans, notices), the answer itself as a normal `<<< assistant` section.
+Before the agent runs a tool it may ask for permission, the answer is
+controlled by `options.permission_mode`:
+
+| value | behaviour |
+| --- | --- |
+| `ask` | a `confirm()` dialog, the call is rejected when it cannot be shown |
+| `allow` | the first `allow_once`/`allow_always` option is selected |
+| `deny` | the first `reject_*` option is selected |
+
+The plugin serves `fs/read_text_file` and `fs/write_text_file`, so buffers that
+show a file edited by the agent are reloaded automatically. Buffers with local
+changes are left alone, Vim will report the file change instead. File system
+access can be switched off with `options.enable_fs = 0`.
+
+`:AIImage` needs a model that generates images, configure a provider with
+`RequestImage` support for it, the ACP provider only reports an error.
+
+All ACP options, with their defaults (the `complete` and `edit` variants use
+`reuse_session = 0` and `request_timeout = 120`):
+
+| option | default | meaning |
+| --- | --- | --- |
+| `agent_command` | `['claude-code-acp']` | command of the agent, a list or a string, a json list in an INI file |
+| `cwd` | `''` | working directory of the agent, empty means the directory of the current buffer |
+| `session_key` | `''` | empty means one session per buffer |
+| `permission_mode` | `'ask'` | `ask`, `allow` or `deny` |
+| `enable_fs` | `1` | serve `fs/read_text_file` and `fs/write_text_file` |
+| `reuse_session` | `1` | continue the agent session in the same buffer |
+| `send_system_prompt` | `1` | include `>>> system` sections in the prompt |
+| `request_timeout` | `300` | seconds without any message from the agent before the turn is given up |
+| `protocol_version` | `1` | ACP protocol version |
+| `mcp_servers` | `[]` | MCP servers handed to `session/new` |
+| `auth_method` | `''` | method id of `authenticate`, empty skips the step |
+
+`<Ctrl-c>` cancels `:AI`/`:AIEdit` as usual, `:AIStopChat` sends
+`session/cancel` to the agent of the current chat buffer.
 
 ## Roles
 

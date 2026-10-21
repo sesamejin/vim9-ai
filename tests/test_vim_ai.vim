@@ -87,8 +87,9 @@ def TestPlugin()
   Equal('command :AIImage exists', exists(':AIImage'), 2)
   Equal('command :AIRedo exists', exists(':AIRedo'), 2)
   Equal('command :AIStopChat exists', exists(':AIStopChat'), 2)
-  Equal('registered providers', sort(keys(g:vim_ai_providers)), ['openai'])
+  Equal('registered providers', sort(keys(g:vim_ai_providers)), ['acp', 'openai'])
   Equal('provider module', g:vim_ai_providers.openai.module, 'vim_ai_provider_openai')
+  Equal('acp provider module', g:vim_ai_providers.acp.module, 'vim_ai_provider_acp')
   # `exists('*vim_ai#AIRun')` does not load autoload scripts, `function()` does
   Equal('public functions', type(function('vim_ai#AIRun')) == v:t_func, true)
 enddef
@@ -665,6 +666,352 @@ def TestWaitTimeout()
   Falsy('the config file is removed', filereadable(handle.config_path))
 enddef
 
+# ---------------------------------------------------------------------------
+# ACP, the fake agent is a POSIX shell script like the fake curl
+# ---------------------------------------------------------------------------
+
+def FakeAcpCommand(): list<string>
+  return FakeCurlCommand('fake_acp_agent.sh')
+enddef
+
+# windows paths end up inside json, where a backslash starts an escape
+def SlashPath(path: string): string
+  return substitute(path, '\\', '/', 'g')
+enddef
+
+def AcpOptions(key: string, extra: dict<any> = {}): dict<any>
+  var options: dict<any> = {
+    agent_command: FakeAcpCommand(),
+    cwd: root,
+    session_key: key,
+    reuse_session: 0,
+    permission_mode: 'allow',
+    request_timeout: 15,
+  }
+  return extendnew(options, extra)
+enddef
+
+def AcpPrompt(text: string): dict<any>
+  return {full: [{type: 'text', text: text}], last: [{type: 'text', text: text}]}
+enddef
+
+def IgnoreChunk(chunk: dict<any>)
+enddef
+
+# Runs a turn and returns the rendered chunks, `handle` is returned in `state`.
+def RunAcpTurn(state: dict<any>, options: dict<any>, prompt: dict<any>): dict<any>
+  var handle = vim_ai_acp#Request(options, prompt,
+    (chunk) => add(state.chunks, chunk.type .. ':' .. chunk.content),
+    (h) => add(state.finished, h))
+  vim_ai_http#Wait(handle)
+  return handle
+enddef
+
+def NewAcpState(): dict<any>
+  return {chunks: [], finished: []}
+enddef
+
+def TestAcpTurn()
+  if empty(FakeAcpCommand())
+    results->add('skip acp turn (fake agent not executable)')
+    return
+  endif
+
+  var state = NewAcpState()
+  var handle = RunAcpTurn(state, AcpOptions('test-acp-turn'), AcpPrompt('hello'))
+  Equal('acp turn error', vim_ai_http#Error(handle), '')
+  Equal('acp turn is done', vim_ai_http#IsDone(handle), true)
+  Equal('acp turn chunks', state.chunks, [
+    'assistant:echo:hello',
+    'thinking:thinking',
+    'info:[tool] Read file (read, pending)',
+    'assistant:Hello',
+    'assistant: world',
+  ])
+  Equal('acp on_done is called once', len(state.finished), 1)
+  # `reuse_session` is off, the agent of a finished turn is stopped
+  Equal('acp one shot session is closed', vim_ai_acp#SessionCount(), 0)
+enddef
+
+def TestAcpSessionReuse()
+  if empty(FakeAcpCommand())
+    results->add('skip acp session reuse (fake agent not executable)')
+    return
+  endif
+  var options = AcpOptions('test-acp-reuse', {reuse_session: 1})
+  var key = options.session_key
+  try
+    var first = NewAcpState()
+    RunAcpTurn(first, options,
+      {full: [{type: 'text', text: 'FULL-PROMPT'}], last: [{type: 'text', text: 'first'}]})
+    Equal('the first turn sends the whole prompt', first.chunks[0], 'assistant:echo:FULL-PROMPT')
+    Equal('the session is kept', vim_ai_acp#SessionCount(), 1)
+
+    var second = NewAcpState()
+    RunAcpTurn(second, options,
+      {full: [{type: 'text', text: 'FULL-PROMPT'}], last: [{type: 'text', text: 'second'}]})
+    Equal('a later turn sends only the new message', second.chunks[0], 'assistant:echo:second')
+  finally
+    vim_ai_acp#CloseSession(key)
+  endtry
+  Equal('the session can be closed', vim_ai_acp#SessionCount(), 0)
+enddef
+
+def TestAcpPermission()
+  if empty(FakeAcpCommand())
+    results->add('skip acp permission (fake agent not executable)')
+    return
+  endif
+
+  var allowed = NewAcpState()
+  RunAcpTurn(allowed, AcpOptions('test-acp-allow', {permission_mode: 'allow'}),
+    AcpPrompt('ask permission'))
+  Truthy('the allow option is selected',
+    index(allowed.chunks, 'assistant:permission: allow-once') >= 0, string(allowed.chunks))
+
+  var denied = NewAcpState()
+  RunAcpTurn(denied, AcpOptions('test-acp-deny', {permission_mode: 'deny'}),
+    AcpPrompt('ask permission'))
+  Truthy('the reject option is selected',
+    index(denied.chunks, 'assistant:permission: reject-once') >= 0, string(denied.chunks))
+enddef
+
+def TestAcpFileSystem()
+  if empty(FakeAcpCommand())
+    results->add('skip acp file system (fake agent not executable)')
+    return
+  endif
+
+  var directory = tempname()
+  mkdir(directory)
+  var read_path = directory .. '/read.txt'
+  var write_path = directory .. '/written.txt'
+  writefile(['FAKE_ACP_MARKER'], read_path)
+
+  var command = FakeAcpCommand() + [SlashPath(read_path), SlashPath(write_path)]
+  var options = AcpOptions('test-acp-fs', {agent_command: command})
+  try
+    var read_state = NewAcpState()
+    RunAcpTurn(read_state, options, AcpPrompt('please readfile'))
+    Truthy('the agent read the file through the client',
+      index(read_state.chunks, 'assistant:read: found') >= 0, string(read_state.chunks))
+
+    var write_state = NewAcpState()
+    RunAcpTurn(write_state, options, AcpPrompt('please writefile'))
+    Truthy('the agent wrote the file through the client',
+      index(write_state.chunks, 'assistant:wrote') >= 0, string(write_state.chunks))
+    Equal('the written file exists', filereadable(write_path), 1)
+    Equal('the written file content', join(readfile(write_path), "\n"), 'written by the agent')
+  finally
+    delete(directory, 'rf')
+  endtry
+enddef
+
+def TestAcpCancel()
+  if empty(FakeAcpCommand())
+    results->add('skip acp cancel (fake agent not executable)')
+    return
+  endif
+  # the session is kept so that its state can be inspected
+  var options = AcpOptions('test-acp-cancel', {reuse_session: 1})
+  var handle = vim_ai_acp#Request(options, AcpPrompt('hang'), IgnoreChunk, v:none)
+
+  # wait for the session, then for the agent to receive the prompt
+  var waited = 0
+  while !vim_ai_acp#IsReady(options.session_key) && waited < 100
+    sleep 20m
+    waited += 1
+  endwhile
+  Truthy('the session is ready before the cancel', vim_ai_acp#IsReady(options.session_key))
+
+  vim_ai_http#Cancel(handle)
+  vim_ai_http#Wait(handle)
+  Equal('a cancelled turn is not an error', vim_ai_http#Error(handle), '')
+  Equal('the cancelled turn is done', vim_ai_http#IsDone(handle), true)
+
+  vim_ai_acp#CloseSession(options.session_key)
+  Equal('the cancelled session can be closed', vim_ai_acp#SessionCount(), 0)
+enddef
+
+def TestAcpStartFailure()
+  var options: dict<any> = {
+    agent_command: ['definitely-not-an-acp-agent-vim-ai-test'],
+    cwd: root,
+    session_key: 'test-acp-missing',
+    reuse_session: 0,
+    request_timeout: 5,
+  }
+  var handle = vim_ai_acp#Request(options, AcpPrompt('hello'), IgnoreChunk, v:none)
+  vim_ai_http#Wait(handle)
+  var error = vim_ai_http#Error(handle)
+  Truthy('a missing agent is reported', error =~# 'failed to start the ACP agent', error)
+  Equal('no session is left behind', vim_ai_acp#SessionCount(), 0)
+enddef
+
+def TestAcpPrompt()
+  var messages = vim_ai_chat#ParseMessages(">>> system\n\nbe nice\n\n>>> user\n\nhello")
+
+  var with_system = vim_ai_provider_acp#BuildPrompt({send_system_prompt: 1}, messages)
+  Equal('acp prompt keeps the system section', with_system.full,
+    [{type: 'text', text: "### system\n\nbe nice\n\n### user\n\nhello"}])
+  Equal('acp prompt has the last message', with_system.last, [{type: 'text', text: 'hello'}])
+
+  Equal('acp prompt can drop the system section',
+    vim_ai_provider_acp#BuildPrompt({send_system_prompt: 0}, messages).full,
+    [{type: 'text', text: 'hello'}])
+
+  var with_image = vim_ai_provider_acp#BuildPrompt({}, [{role: 'user', content: [
+    {type: 'text', text: 'look'},
+    {type: 'image_url', image_url: {url: 'data:image/jpeg;base64,AAAA'}},
+  ]}])
+  Equal('acp image attachment', with_image.last, [
+    {type: 'text', text: 'look'},
+    {type: 'image', mimeType: 'image/jpeg', data: 'AAAA'},
+  ])
+enddef
+
+def TestAcpChatEndToEnd()
+  if empty(FakeAcpCommand())
+    results->add('skip acp chat end to end (fake agent not executable)')
+    return
+  endif
+
+  var saved_provider = g:vim_ai_chat.provider
+  var saved_options = g:vim_ai_chat.options
+  try
+    g:vim_ai_chat.provider = 'acp'
+    g:vim_ai_chat.options = {
+      agent_command: FakeAcpCommand(),
+      cwd: root,
+      reuse_session: 0,
+      request_timeout: 15,
+    }
+    enew!
+    setlocal buftype=nofile
+    setlocal filetype=aichat
+    setline(1, ['>>> user', '', 'hello'])
+    vim_ai#AIChatRun(0, {})
+
+    var lines = getline(1, '$')
+    Truthy('the acp answer is in the chat', index(lines, 'Hello world') >= 0, string(lines))
+    Truthy('the tool call is shown', index(lines, '<<< info') >= 0, string(lines))
+    Truthy('a new user block is prepared', index(lines[-3 :], '>>> user') >= 0, string(lines[-3 :]))
+  finally
+    g:vim_ai_chat.provider = saved_provider
+    g:vim_ai_chat.options = saved_options
+  endtry
+enddef
+
+def TestAcpChatAsync()
+  if empty(FakeAcpCommand())
+    results->add('skip acp async chat (fake agent not executable)')
+    return
+  endif
+
+  var saved_provider = g:vim_ai_chat.provider
+  var saved_options = g:vim_ai_chat.options
+  g:vim_ai_async_chat = 1
+  try
+    g:vim_ai_chat.provider = 'acp'
+    g:vim_ai_chat.options = {
+      agent_command: FakeAcpCommand(),
+      cwd: root,
+      reuse_session: 0,
+      request_timeout: 15,
+    }
+    enew!
+    setlocal buftype=nofile
+    setlocal filetype=aichat
+    setline(1, ['>>> user', '', 'hello'])
+    vim_ai#AIChatRun(0, {})
+    var bufnr = bufnr('%')
+
+    var waited = 0
+    while !vim_ai_chat#IsJobDone(bufnr) && waited < 100
+      sleep 50m
+      vim_ai#AIChatWatch(bufnr, 0, 0)
+      waited += 1
+    endwhile
+    # the last lines are flushed by the watch call that sees the finished job
+    vim_ai#AIChatWatch(bufnr, 0, 0)
+
+    Equal('acp async chat finished', vim_ai_chat#IsJobDone(bufnr), true)
+    var lines = getline(1, '$')
+    Truthy('the acp answer arrives asynchronously', index(lines, 'Hello world') >= 0, string(lines))
+    Truthy('the spinner is gone', index(lines, '<<< answering') < 0, string(lines))
+  finally
+    g:vim_ai_async_chat = 0
+    g:vim_ai_chat.provider = saved_provider
+    g:vim_ai_chat.options = saved_options
+  endtry
+enddef
+
+def TestAcpTimeout()
+  if empty(FakeAcpCommand())
+    results->add('skip acp timeout (fake agent not executable)')
+    return
+  endif
+  var options = AcpOptions('test-acp-timeout', {reuse_session: 1, request_timeout: 1})
+  var started = reltime()
+  var handle = vim_ai_acp#Request(options, AcpPrompt('hang'), IgnoreChunk, v:none)
+  vim_ai_http#Wait(handle)
+  Truthy('the acp wait is bounded', reltimefloat(reltime(started)) < 10)
+  Equal('the acp timeout is reported', vim_ai_http#Error(handle), 'Request timeout...')
+  Equal('the timed out session is gone', vim_ai_acp#SessionCount(), 0)
+enddef
+
+def TestAcpWriteReloadsBuffer()
+  if empty(FakeAcpCommand())
+    results->add('skip acp buffer reload (fake agent not executable)')
+    return
+  endif
+
+  var directory = tempname()
+  mkdir(directory)
+  var write_path = directory .. '/reload.txt'
+  writefile(['original'], write_path)
+  var command = FakeAcpCommand() + [SlashPath(write_path), SlashPath(write_path)]
+
+  try
+    execute 'edit ' .. fnameescape(write_path)
+    Equal('the buffer starts with the old content', getline(1, '$'), ['original'])
+
+    var state = NewAcpState()
+    RunAcpTurn(state, AcpOptions('test-acp-reload', {agent_command: command}),
+      AcpPrompt('please writefile'))
+    Equal('the buffer shows what the agent wrote', getline(1, '$'), ['written by the agent'])
+  finally
+    enew!
+    delete(directory, 'rf')
+  endtry
+enddef
+
+def TestAcpCompleteEndToEnd()
+  if empty(FakeAcpCommand())
+    results->add('skip acp complete (fake agent not executable)')
+    return
+  endif
+
+  var saved_provider = g:vim_ai_complete.provider
+  var saved_options = g:vim_ai_complete.options
+  try
+    g:vim_ai_complete.provider = 'acp'
+    g:vim_ai_complete.options = {
+      agent_command: FakeAcpCommand(),
+      cwd: root,
+      request_timeout: 15,
+    }
+    enew!
+    setline(1, [''])
+    &undolevels = &undolevels
+    vim_ai#AIRun(0, {}, 'explain')
+    Truthy('the acp answer is inserted', getline(1) =~# 'Hello world', getline(1))
+  finally
+    g:vim_ai_complete.provider = saved_provider
+    g:vim_ai_complete.options = saved_options
+  endtry
+enddef
+
 # the function is defined by a legacy script, see the comment in that file
 def TestRolesFunction()
   execute 'source ' .. resources .. '/roles_function.vim'
@@ -842,6 +1189,18 @@ var cases = [
   ['wait timeout', TestWaitTimeout],
   ['wait max duration', TestWaitMaxDuration],
   ['chat cancel', TestChatCancel],
+  ['acp turn', TestAcpTurn],
+  ['acp session reuse', TestAcpSessionReuse],
+  ['acp permission', TestAcpPermission],
+  ['acp file system', TestAcpFileSystem],
+  ['acp cancel', TestAcpCancel],
+  ['acp start failure', TestAcpStartFailure],
+  ['acp prompt', TestAcpPrompt],
+  ['acp chat end to end', TestAcpChatEndToEnd],
+  ['acp chat async', TestAcpChatAsync],
+  ['acp timeout', TestAcpTimeout],
+  ['acp buffer reload', TestAcpWriteReloadsBuffer],
+  ['acp complete end to end', TestAcpCompleteEndToEnd],
   ['redo', TestRedo],
   ['roles function', TestRolesFunction],
   ['deprecated commands', TestDeprecatedCommands],

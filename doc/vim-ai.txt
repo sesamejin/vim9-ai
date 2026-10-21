@@ -252,6 +252,82 @@ https://platform.openai.com/docs/api-reference/images/create
 
 :AIUtilDebugOff                     turn off debug logging
 
+                                                *:AIUtilAcpStop*
+
+:AIUtilAcpStop                      stop all ACP agents, chat buffers keep
+                                    their agents alive between turns
+
+
+ACP PROVIDER                                    *vim-ai-acp*
+
+Besides the OpenAI compatible HTTP API the plugin can drive an ACP agent
+(https://agentclientprotocol.com).  The agent is started as a subprocess and
+the prompt is sent over JSON-RPC, so the agent reads and edits the project
+itself instead of only returning text.
+
+To use it, set the provider and the command of the agent: >
+
+  let g:vim_ai_chat = {
+  \  "provider": "acp",
+  \  "options": {
+  \    "agent_command": ["claude-code-acp"],
+  \  },
+  \}
+
+The same works per chat buffer, in its header: >
+
+  [chat]
+  provider=acp
+  options.agent_command=["npx", "-y", "@zed-industries/claude-code-acp"]
+
+or with a role, e.g. `:AIChat /claude`.
+
+An agent is started once per chat buffer and the buffer continues its session,
+so only the new message is sent on every turn.  `:AI` and `:AIEdit` do not
+reuse sessions, they send the whole conversation as one prompt and stop the
+agent afterwards.  Tool calls, plans and notices are shown in the chat buffer
+as `<<< info` sections.
+
+The agent may ask for permission before it runs a tool.  The plugin serves
+`fs/read_text_file` and `fs/write_text_file` and reloads buffers that show a
+file the agent changed (buffers with local changes are left alone).
+
+                                               *g:vim_ai_acp_chat*
+Options of the acp provider, the complete and edit variants
+(`g:vim_ai_acp_complete`, `g:vim_ai_acp_edit`) use `reuse_session = 0` and
+`request_timeout = 120`:
+
+  agent_command         command of the agent, a list or a string.
+                        Default: `['claude-code-acp']`
+  cwd                   working directory of the agent, empty means the
+                        directory of the current buffer. Default: `''`
+  session_key           empty means one session per buffer. Default: `''`
+  permission_mode       `ask` shows a |confirm()| dialog, `allow` selects the
+                        first allow option, `deny` the first reject option.
+                        Default: `'ask'`
+  enable_fs             1 serves `fs/read_text_file` and `fs/write_text_file`.
+                        Default: `1`
+  reuse_session         1 continues the agent session in the same buffer.
+                        Default: `1` (chat), `0` (complete, edit)
+  send_system_prompt    1 includes `>>> system` sections in the prompt.
+                        Default: `1`
+  request_timeout       seconds without any message from the agent before the
+                        turn is given up, 0 disables the check. Default: `300`
+  protocol_version      ACP protocol version. Default: `1`
+  mcp_servers           MCP servers handed to `session/new`. Default: `[]`
+  auth_method           method id of `authenticate`, empty skips the step.
+                        Default: `''`
+
+In an INI file `agent_command` and `mcp_servers` are written as json, a role
+can switch the provider as well: >
+
+  [claude]
+  provider = acp
+  options.agent_command = ["npx", "-y", "@zed-industries/claude-code-acp"]
+  options.permission_mode = allow
+
+`:AIImage` is not supported by this provider, it needs a model that generates
+images.
 
 CONFIGURATION                                   *vim-ai-config*
 
